@@ -15,8 +15,10 @@ const chat = async (req, res) => {
       return res.status(400).json({ error: "userId required" });
     }
 
+    // AI analysis
     const ai = await groqService.analyzeMessage(message);
 
+    // Save chat history
     await ChatHistory.create({
       userId,
       sessionId,
@@ -25,6 +27,8 @@ const chat = async (req, res) => {
     });
 
     try {
+
+      // Only create threat event if AI detects risk
       if (ai.severity && ai.severity !== "None") {
 
         const formattedSeverity =
@@ -34,7 +38,8 @@ const chat = async (req, res) => {
         const likelihood = Number(ai.likelihood) || 0;
         const impactScore = Number(ai.impactScore) || 0;
 
-        const calculatedRisk = Math.min(10, likelihood * impactScore);
+        // riskLevel calculation
+        const calculatedRisk = likelihood * impactScore;
 
         await ThreatEvent.create({
           userId,
@@ -47,8 +52,10 @@ const chat = async (req, res) => {
           description: message
         });
 
+        // Update user risk profile
         await updateUserProfile(userId);
       }
+
     } catch (riskError) {
       console.error("Risk Engine Error:", riskError);
     }
@@ -56,8 +63,12 @@ const chat = async (req, res) => {
     res.json(ai);
 
   } catch (err) {
+
     console.error("Chat Controller Error:", err);
-    res.status(500).json({ error: "AI processing failed" });
+
+    res.status(500).json({
+      error: "AI processing failed"
+    });
   }
 };
 

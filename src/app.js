@@ -1,21 +1,33 @@
-const express = require('express');
-const cors = require('cors');
-
-const apiRoutes = require('./routes/apiRoutes');
-const dashboardRoutes = require('./routes/dashboardRoutes'); // ✅ ADD THIS
-const reportRoutes = require("./routes/reportRoutes");
-
-
+// src/app.js
+const express = require("express");
+const cors = require("cors");
 
 const app = express();
 
-// Middleware
+// middlewares
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use('/', apiRoutes);
-app.use('/', dashboardRoutes); // ✅ ADD THIS
-app.use("/", reportRoutes);
+// routes
+const apiRoutes = require("./routes/apiRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
+const reportRoutes = require("./routes/reportRoutes");
+const authRoutes = require("./routes/authRoutes");
+const analyticsRoutes = require("./routes/analyticsRoutes");
+const scanRoutes = require("./routes/scanRoutes");
+const userRoutes = require("./routes/userRoutes"); // 🔥 NEW
+
+// ✅ CLEAN ROUTING STRUCTURE
+app.use("/api/auth", authRoutes);
+app.use("/api/scan", scanRoutes);
+app.use("/api/user", userRoutes);          // 🔥 PROTECTED ROUTES
+
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/report", reportRoutes);
+app.use("/api/analytics", analyticsRoutes);
+
+// optional base route
+app.use("/api", apiRoutes);
 
 module.exports = app;
