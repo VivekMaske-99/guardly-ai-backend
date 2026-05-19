@@ -13,6 +13,7 @@ const io = new Server(server, {
     origin: [
       "http://localhost:3000",
       "http://localhost:5173",
+      "https://guardly-web.vercel.app",
     ],
     methods: ["GET", "POST"],
     credentials: true,
