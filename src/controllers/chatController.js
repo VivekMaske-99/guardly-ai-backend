@@ -29,32 +29,36 @@ const chat = async (req, res) => {
     try {
 
       // Only create threat event if AI detects risk
-      if (ai.severity && ai.severity !== "None") {
+      // 🔥 CHECK IF FIRST MESSAGE OF SESSION
+// 🔥 CHECK IF FIRST MESSAGE IN SESSION
+const isFirstMessage =
+  (await ChatHistory.countDocuments({ sessionId })) === 1;
 
-        const formattedSeverity =
-          ai.severity.charAt(0).toUpperCase() +
-          ai.severity.slice(1).toLowerCase();
+if (isFirstMessage && ai.severity && ai.severity !== "None") {
 
-        const likelihood = Number(ai.likelihood) || 0;
-        const impactScore = Number(ai.impactScore) || 0;
+  const formattedSeverity =
+    ai.severity.charAt(0).toUpperCase() +
+    ai.severity.slice(1).toLowerCase();
 
-        // riskLevel calculation
-        const calculatedRisk = likelihood * impactScore;
+  const likelihood = Number(ai.likelihood) || 0;
+  const impactScore = Number(ai.impactScore) || 0;
 
-        await ThreatEvent.create({
-          userId,
-          sourceType: "chat",
-          category: ai.risk?.toLowerCase() || "phishing",
-          severity: formattedSeverity,
-          likelihood,
-          impact: impactScore,
-          riskLevel: calculatedRisk,
-          description: message
-        });
+  const calculatedRisk = likelihood * impactScore;
 
-        // Update user risk profile
-        await updateUserProfile(userId);
-      }
+  await ThreatEvent.create({
+    userId,
+    sourceType: "chat",
+    category: ai.risk?.toLowerCase() || "phishing",
+    severity: formattedSeverity,
+    likelihood,
+    impact: impactScore,
+    riskLevel: calculatedRisk,
+    description: message
+  });
+
+  // ✅ ONLY UPDATE ON FIRST MESSAGE
+  await updateUserProfile(userId);
+}
 
     } catch (riskError) {
       console.error("Risk Engine Error:", riskError);

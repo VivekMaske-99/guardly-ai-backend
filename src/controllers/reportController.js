@@ -197,47 +197,33 @@ exports.redactPDF = async (req, res) => {
 
     const filePath = scan.filePath;
 
-    if (!filePath || !fs.existsSync(filePath)) {
+    if (!fs.existsSync(filePath)) {
       return res.status(400).json({ error: "File not found" });
     }
 
     const originalBuffer = fs.readFileSync(filePath);
 
-    // 🔥 STEP 1 — Extract text
+    // 🔥 Extract text
     const extractedData = await TextExtractor.extractFromFile(filePath);
     const fullText = extractedData.text || "";
 
-    // 🤖 STEP 2 — AI Detection
+    // 🤖 AI detection
     const aiDetectedValues = await detectSensitiveData(fullText);
     console.log("🤖 AI DETECTED:", aiDetectedValues);
 
-    let modifiedBuffer;
+    const pdfBase64 = originalBuffer.toString("base64");
 
-    try {
-      const pdfBase64 = originalBuffer.toString("base64");
+    const modifiedBase64 = await modifyPdf(
+      pdfBase64,
+      [],
+      "redact",
+      aiDetectedValues
+    );
 
-      // 🔥 STEP 3 — Redaction using AI values
-      const modifiedBase64 = await modifyPdf(
-        pdfBase64,
-        [],
-        "redact",
-        aiDetectedValues
-      );
-
-      modifiedBuffer = Buffer.from(modifiedBase64, "base64");
-
-      // ✅ Validate output
-      if (!modifiedBuffer || modifiedBuffer.length < 1000) {
-        throw new Error("Invalid PDF generated");
-      }
-    } catch (e) {
-      console.log("⚠️ Falling back to original PDF");
-      modifiedBuffer = originalBuffer;
-    }
+    const modifiedBuffer = Buffer.from(modifiedBase64, "base64");
 
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", "attachment; filename=redacted.pdf");
-    res.setHeader("Content-Length", modifiedBuffer.length);
 
     res.end(modifiedBuffer);
   } catch (err) {

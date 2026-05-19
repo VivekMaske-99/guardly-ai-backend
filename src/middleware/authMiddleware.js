@@ -1,25 +1,50 @@
 const jwt = require("jsonwebtoken");
 
 const authMiddleware = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader) {
-    return res.status(401).json({ message: "No token provided" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
   try {
+    // 🔥 Get Authorization Header
+    const authHeader = req.headers.authorization;
+
+    console.log("🔐 AUTH HEADER:", authHeader);
+
+    // ❌ No header
+    if (!authHeader) {
+      return res.status(401).json({ message: "No token provided" });
+    }
+
+    // ❌ Wrong format
+    if (!authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Invalid auth format" });
+    }
+
+    // 🔥 Extract token safely
+    const token = authHeader.split(" ")[1];
+
+    console.log("🔑 TOKEN:", token);
+
+    if (!token) {
+      return res.status(401).json({ message: "Token missing" });
+    }
+
+    // 🔥 Verify token
     const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET || "guardly-secret"
     );
 
-    req.userId = decoded.userId; // 🔥 FIX
+    console.log("✅ DECODED:", decoded);
+
+    // 🔥 Attach userId
+    req.userId = decoded.userId;
 
     next();
+
   } catch (error) {
-    return res.status(401).json({ message: "Invalid token" });
+    console.error("❌ AUTH ERROR:", error.message);
+
+    return res.status(401).json({
+      message: "Invalid or expired token",
+    });
   }
 };
 

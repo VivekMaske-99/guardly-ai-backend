@@ -1,6 +1,5 @@
 /**
- * Document Scanner Service
- * Main orchestrator that coordinates all modules
+ * Document Scanner Service (FINAL FIXED + OCR SAFE)
  */
 
 const TextExtractor = require("./textExtractor");
@@ -8,9 +7,6 @@ const RiskCalculator = require("./riskCalculator");
 const fs = require("fs");
 
 class DocumentScannerService {
-  /**
-   * Scan document from file
-   */
   static async scanFile(filePath, userProfile) {
     if (!fs.existsSync(filePath)) {
       throw new Error(`File not found: ${filePath}`);
@@ -25,9 +21,6 @@ class DocumentScannerService {
     return this._processScanData(extractedData, userProfile, "file");
   }
 
-  /**
-   * Scan document from URL
-   */
   static async scanURL(url, userProfile) {
     if (!url || typeof url !== "string") {
       throw new Error("Invalid URL provided");
@@ -42,11 +35,23 @@ class DocumentScannerService {
     return this._processScanData(extractedData, userProfile, "url");
   }
 
-  /**
-   * Core processing logic
-   */
   static _processScanData(extractedData, userProfile, source) {
-    const { pages, fileType } = extractedData;
+    // 🔥 SAFE EXTRACTION (CRITICAL FIX)
+    const pages = extractedData?.pages || [];
+    const fileType = extractedData?.fileType || "unknown";
+
+    // 🔥 HANDLE BOTH CASES (pages OR text)
+    let fullText = "";
+
+    if (pages.length > 0) {
+      fullText = pages.map((p) => p.text).join(" ");
+    } else {
+      fullText = extractedData?.text || "";
+    }
+
+    fullText = fullText.toLowerCase();
+
+    console.log("🔥 FULL TEXT PREVIEW:", fullText.slice(0, 200));
 
     const scanReport = {
       source,
@@ -72,9 +77,10 @@ class DocumentScannerService {
       riskLevel: "LOW",
       recommendations: [],
       extractedTextSnippets: [],
-      pageCount: pages.length,
 
-      // 🔥 NEW FIELD (DOES NOT BREAK ANYTHING)
+      // 🔥 SAFE PAGE COUNT
+      pageCount: pages.length > 0 ? pages.length : 1,
+
       extractedValues: {
         name: null,
         email: null,
@@ -88,14 +94,7 @@ class DocumentScannerService {
     };
 
     // ===============================
-    // 🔥 FULL TEXT
-    // ===============================
-    const fullText = pages.map((p) => p.text).join(" ").toLowerCase();
-
-    console.log("🔥 FULL TEXT PREVIEW:", fullText.slice(0, 200));
-
-    // ===============================
-    // 🔥 DETECTION (BOOLEAN FLAGS)
+    // 🔥 DETECTION
     // ===============================
     const detected = {
       name: fullText.includes(userProfile.fullName.toLowerCase()),
@@ -113,7 +112,7 @@ class DocumentScannerService {
     console.log("🔥 DETECTED:", detected);
 
     // ===============================
-    // 🔥 EXTRACT ACTUAL VALUES (NEW)
+    // 🔥 EXTRACT VALUES
     // ===============================
     const extractedValues = {
       name: null,
@@ -137,10 +136,10 @@ class DocumentScannerService {
     console.log("🔥 EXTRACTED VALUES:", extractedValues);
 
     // ===============================
-    // APPLY DETECTION
+    // APPLY
     // ===============================
     scanReport.matchedData = detected;
-    scanReport.extractedValues = extractedValues; // ✅ SAFE ADD
+    scanReport.extractedValues = extractedValues;
 
     if (detected.name) scanReport.occurrences.name.push(1);
     if (detected.email) scanReport.occurrences.email.push(1);
@@ -150,7 +149,7 @@ class DocumentScannerService {
     scanReport.extractedTextSnippets.push(fullText.slice(0, 150));
 
     // ===============================
-    // 🔥 RISK CALCULATION
+    // 🔥 RISK
     // ===============================
     const riskData = RiskCalculator.calculateRisk(
       scanReport.matchedData,

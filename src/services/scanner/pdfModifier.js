@@ -1,27 +1,16 @@
 const { PDFDocument, rgb } = require("pdf-lib");
 const pdfjsLib = require("pdfjs-dist/legacy/build/pdf.js");
 
-async function modifyPdf(
-  pdfBase64,
-  detections = [],
-  action = "redact",
-  extractedValues = {}
-) {
-  // ✅ Convert Buffer → Uint8Array
+async function modifyPdf(pdfBase64, detections = [], action = "redact", extractedValues = {}) {
   const pdfBuffer = Buffer.from(pdfBase64, "base64");
   const pdfBytes = new Uint8Array(pdfBuffer);
 
-  // ✅ Load PDF (drawing)
   const pdfDoc = await PDFDocument.load(pdfBytes);
   const pages = pdfDoc.getPages();
 
-  // ✅ Load PDF (text extraction)
   const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
   const pdf = await loadingTask.promise;
 
-  // ===============================
-  // LOOP THROUGH PAGES
-  // ===============================
   for (let pageIndex = 0; pageIndex < pdf.numPages; pageIndex++) {
     const page = pages[pageIndex];
     const pageHeight = page.getHeight();
@@ -29,98 +18,79 @@ async function modifyPdf(
     const pdfPage = await pdf.getPage(pageIndex + 1);
     const textContent = await pdfPage.getTextContent();
 
-    for (const item of textContent.items) {
-      const text = item.str.toLowerCase();
+    const items = textContent.items;
 
-      for (const [key, value] of Object.entries(extractedValues)) {
-        if (!value) continue;
+    // ===============================
+    // 🔥 GROUP ITEMS INTO LINES
+    // ===============================
+    const lines = [];
 
-        const val = value.toLowerCase().trim();
+    items.forEach(item => {
+      const transform = item.transform;
+      const y = pageHeight - transform[5];
 
-        // 🚫 Ignore small values
-        if (val.length < 4) continue;
+      let added = false;
 
-        // ===============================
-        // 🔥 SMART MATCH (AI FRIENDLY)
-        // ===============================
-        let isMatch = false;
-
-        // ✅ Exact match
-        if (text.includes(val)) {
-          isMatch = true;
+      for (let line of lines) {
+        if (Math.abs(line.y - y) < 10) {
+          line.items.push(item);
+          added = true;
+          break;
         }
+      }
 
-        // ✅ Fallback for split text
-        else if (val.length > 6) {
-          const parts = val.split(/[@\s.]/);
+      if (!added) {
+        lines.push({ y, items: [item] });
+      }
+    });
 
-          isMatch = parts.some(
-            (part) =>
-              part.length > 3 &&
-              !["gmail", "com", "india"].includes(part) &&
-              text.includes(part)
-          );
-        }
+    // ===============================
+    // 🔍 MATCH FULL VALUE IN LINE
+    // ===============================
+    for (const value of Object.values(extractedValues)) {
+      if (!value) continue;
 
-        // ===============================
-        // 🎯 APPLY REDACTION
-        // ===============================
-        if (isMatch) {
-          const transform = item.transform;
+      const val = value.toLowerCase().trim();
+      if (val.length < 3) continue;
 
-          // ✅ Correct coordinates (FIXED)
-          const x = transform[4];
-          const yRaw = transform[5];
+      for (const line of lines) {
+        const lineText = line.items.map(i => i.str).join(" ").toLowerCase();
 
-          // 🔥 Proper height calculation
-          const height =
-            Math.sqrt(transform[2] ** 2 + transform[3] ** 2) || 10;
+        if (lineText.includes(val)) {
+          // 🔥 get bounding box of entire line
+          const boxes = line.items.map(item => {
+            const t = item.transform;
 
-          // 🔥 Correct Y conversion
-          const y = pageHeight - yRaw - height;
+            const x = t[4];
+            const yRaw = t[5];
 
-          // 🔥 Controlled width (avoid full line)
-          const width = Math.min(item.width, 200);
+            const height =
+              Math.sqrt(t[2] ** 2 + t[3] ** 2) || 10;
 
-          /* ================= 🔴 REDACT ================= */
-          if (action === "redact") {
-            page.drawRectangle({
-              x: x - 1,
-              y: y - 1,
-              width: width + 2,
-              height: height + 2,
-              color: rgb(0, 0, 0),
-            });
-          }
+            const y = pageHeight - yRaw - height;
 
-          /* ================= 🟡 HIGHLIGHT ================= */
-          else if (action === "highlight") {
-            page.drawRectangle({
+            return {
               x,
               y,
-              width,
+              width: item.width,
               height,
-              color: rgb(1, 1, 0),
-              opacity: 0.4,
-            });
-          }
+            };
+          });
 
-          /* ================= 🔳 MASK ================= */
-          else if (action === "mask") {
-            const boxSize = 6;
+          const minX = Math.min(...boxes.map(b => b.x));
+          const maxX = Math.max(...boxes.map(b => b.x + b.width));
+          const minY = Math.min(...boxes.map(b => b.y));
+          const maxY = Math.max(...boxes.map(b => b.y + b.height));
 
-            for (let px = x; px < x + width; px += boxSize) {
-              for (let py = y; py < y + height; py += boxSize) {
-                page.drawRectangle({
-                  x: px,
-                  y: py,
-                  width: boxSize,
-                  height: boxSize,
-                  color: rgb(0.8, 0.8, 0.8),
-                });
-              }
-            }
-          }
+          const padding = 3;
+
+          page.drawRectangle({
+            x: minX - padding,
+            y: minY - padding,
+            width: maxX - minX + padding * 2,
+            height: maxY - minY + padding * 2,
+            color: rgb(0, 0, 0),
+          });
         }
       }
     }

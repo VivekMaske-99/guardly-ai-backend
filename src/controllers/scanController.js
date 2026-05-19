@@ -6,9 +6,6 @@ const fs = require("fs");
 
 exports.scanFile = async (req, res) => {
   try {
-    // ===============================
-    // VALIDATION
-    // ===============================
     if (!req.file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
@@ -18,7 +15,6 @@ exports.scanFile = async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    // 🔥 FIX PATH AT SOURCE (BEST PRACTICE)
     const filePath = req.file.path.replace(/\\/g, "/");
 
     const userProfile = {
@@ -29,19 +25,14 @@ exports.scanFile = async (req, res) => {
       location: req.body.location || "",
     };
 
-    // ===============================
-    // 🔍 SCAN DOCUMENT
-    // ===============================
+    // 🔍 Scan
     const result = await DocumentScannerService.scanFile(
       filePath,
       userProfile
     );
 
-    // ===============================
-    // 🔴 PDF REDACT GENERATION
-    // ===============================
+    // 🔴 Redaction preview
     let modifiedPdf = null;
-
     try {
       const pdfBase64 = fs.readFileSync(filePath, {
         encoding: "base64",
@@ -57,116 +48,64 @@ exports.scanFile = async (req, res) => {
       console.error("⚠️ PDF modify failed:", e.message);
     }
 
-    // ===============================
-    // SAFE MATCHED DATA
-    // ===============================
-    let matched = result?.matchedData;
-
-    if (!matched) matched = {};
-
-    if (Object.keys(matched).length === 0) {
-      matched = {
-        name: true,
-        email: true,
-        phone: true,
-        location: true,
-      };
-    }
-
+    // ✅ Detection
     const detected = {
-      name: Boolean(matched.name || matched.fullName),
-      email: Boolean(matched.email),
-      phone: Boolean(matched.phone),
-      location: Boolean(matched.location || matched.address),
+      name: !!result?.extractedValues?.name,
+      email: !!result?.extractedValues?.email,
+      phone: !!result?.extractedValues?.phone,
+      location: !!result?.extractedValues?.location,
     };
 
     console.log("🔥 DETECTED:", detected);
 
-    // ===============================
-    // 🔥 FIXED SEVERITY
-    // ===============================
-    const category = "data_leak";
+    // 🔥 Risk
+    let riskLevel = (result.riskLevel || "Low").toLowerCase();
 
-    const risk = (result.riskLevel || "").toLowerCase();
+if (riskLevel === "high") riskLevel = "High";
+else if (riskLevel === "medium") riskLevel = "Medium";
+else riskLevel = "Low";
+    const riskScore = result.riskScore || 10;
 
-    let severity = "Low";
-    if (risk === "medium") severity = "Medium";
-    if (risk === "high" || risk === "critical") severity = "High";
-
-    const likelihood =
-      Object.values(detected).filter(Boolean).length || 1;
-
-    const impact = result.riskScore || 1;
-
-    // ===============================
-    // 💾 SAVE THREAT
-    // ===============================
+    // 💾 Save threat
     const threat = await ThreatEvent.create({
       userId,
       sourceType: "file",
-      category,
-      severity,
-      likelihood,
-      impact,
-      description: `Detected sensitive data: ${JSON.stringify(detected)}`,
+      category: "data_leak",
+      severity: riskLevel,
+      likelihood: Object.values(detected).filter(Boolean).length || 1,
+      impact: riskScore,
+      description: `Detected: ${JSON.stringify(detected)}`,
     });
 
-    // ===============================
-    // 💾 SAVE SCAN
-    // ===============================
+    // 💾 Save scan
     const scanRecord = await Scan.create({
       userId,
-      riskScore: result.riskScore || 0,
-      riskLevel: result.riskLevel || "Low",
+      riskScore,
+      riskLevel,
       fileName: req.file.originalname,
-      filePath: filePath, // ✅ already fixed above
+      filePath,
       extractedValues: result.extractedValues || {},
     });
 
-    // ===============================
-    // ⚡ SOCKET EVENT
-    // ===============================
-    const io = req.app.get("io");
-    if (io) {
-      io.emit("new-threat", {
-        userId,
-        riskLevel: result.riskLevel,
-        riskScore: result.riskScore,
-        detected,
-        timestamp: new Date(),
-      });
-    }
-
-    // ===============================
     // ✅ FINAL RESPONSE
-    // ===============================
-    const responseData = {
-      riskScore: result.riskScore || 15,
-      riskLevel: result.riskLevel || "LOW",
-      pageCount: result.pageCount || 1,
-
-      detected: {
-        name: detected.name ? 1 : 0,
-        email: detected.email ? 1 : 0,
-        phone: detected.phone ? 1 : 0,
-        location: detected.location ? 1 : 0,
-      },
-
-      extractedValues: result.extractedValues || {},
-      filePath: filePath, // ✅ already normalized
-      modifiedPdf,
-
-      scanId: scanRecord._id,
-      threatId: threat._id,
-    };
-
-    console.log("✅ FINAL FILE PATH:", filePath);
-
     res.json({
       success: true,
       message: "Scan completed successfully",
-      scanId: scan._id,
-      data: responseData,
+      scanId: scanRecord._id, // 🔥 FIXED
+      data: {
+        riskScore,
+        riskLevel,
+        pageCount: result.pageCount || 1,
+        detected: {
+          name: detected.name ? 1 : 0,
+          email: detected.email ? 1 : 0,
+          phone: detected.phone ? 1 : 0,
+          location: detected.location ? 1 : 0,
+        },
+        extractedValues: result.extractedValues || {},
+        filePath,
+        modifiedPdf,
+      },
     });
 
   } catch (err) {

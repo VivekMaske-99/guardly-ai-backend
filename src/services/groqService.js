@@ -8,17 +8,51 @@ const analyzeMessage = async (message, isFirstQuery = true) => {
   const completion = await groq.chat.completions.create({
     model: "llama-3.3-70b-versatile",
     temperature: 0.2,
-    response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: "You are GuardLY cybersecurity assistant"
+        content: `
+You are GuardLY cybersecurity assistant.
+
+Analyze the user message and respond in this JSON format:
+
+{
+  "ai": "short explanation",
+  "risk": "type of risk",
+  "severity": "Low | Medium | High | None",
+  "impact": "impact description",
+  "action": "what user should do",
+  "likelihood": number,
+  "impactScore": number,
+  "riskLevel": number,
+  "suggestions": ["suggestion1", "suggestion2"]
+}
+`
       },
       { role: "user", content: message }
     ]
   });
 
-  const parsed = JSON.parse(completion.choices[0].message.content);
+  let parsed;
+
+  try {
+    parsed = JSON.parse(completion.choices[0].message.content);
+  } catch (e) {
+    console.error("JSON Parse Error:", completion.choices[0].message.content);
+
+    // 🔥 FALLBACK (VERY IMPORTANT)
+    parsed = {
+      ai: completion.choices[0].message.content || "Unable to analyze.",
+      risk: "",
+      severity: "None",
+      impact: "",
+      action: "",
+      likelihood: 0,
+      impactScore: 0,
+      riskLevel: 0,
+      suggestions: []
+    };
+  }
 
   return {
     ai: parsed.ai || "",
